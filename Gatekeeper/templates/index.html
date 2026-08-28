@@ -1,0 +1,666 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Gatekeeper - Protocol Gateway</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <style>
+        .status-running { @apply text-green-600 bg-green-100; }
+        .status-stopped { @apply text-red-600 bg-red-100; }
+        .card-hover { @apply hover:shadow-lg transition-shadow duration-200; }
+    </style>
+</head>
+<body class="bg-gray-100 min-h-screen">
+    <div class="container mx-auto px-4 py-8">
+        <!-- Header -->
+        <div class="bg-white rounded-lg shadow-md p-6 mb-6">
+            <div class="flex items-center justify-between">
+                <div>
+                    <h1 class="text-3xl font-bold text-gray-800">
+                        <i class="fas fa-shield-alt text-blue-600 mr-3"></i>Gatekeeper
+                    </h1>
+                    <p class="text-gray-600 mt-1">Protocol Gateway with Cloudflare Tunnel Support</p>
+                </div>
+                <button onclick="refreshData()" class="text-blue-600 hover:text-blue-800">
+                    <i class="fas fa-sync-alt text-xl"></i>
+                </button>
+            </div>
+        </div>
+
+        <!-- Architecture Diagram -->
+        <div class="bg-gradient-to-r from-blue-50 to-purple-50 rounded-lg shadow-md p-6 mb-6">
+            <h2 class="text-lg font-semibold text-gray-800 mb-4">How It Works</h2>
+            <div class="flex flex-wrap items-center justify-center gap-4 text-sm">
+                <div class="bg-white px-4 py-2 rounded-lg shadow">
+                    <i class="fas fa-mobile-alt text-green-600 mr-2"></i>Android Client
+                </div>
+                <i class="fas fa-arrow-right text-gray-400"></i>
+                <div class="bg-white px-4 py-2 rounded-lg shadow">
+                    <i class="fas fa-cloud text-orange-500 mr-2"></i>Cloudflare Edge
+                </div>
+                <i class="fas fa-arrow-right text-gray-400"></i>
+                <div class="bg-white px-4 py-2 rounded-lg shadow">
+                    <i class="fas fa-tunnel text-blue-600 mr-2"></i>cloudflared
+                </div>
+                <i class="fas fa-arrow-right text-gray-400"></i>
+                <div class="bg-white px-4 py-2 rounded-lg shadow">
+                    <i class="fas fa-server text-purple-600 mr-2"></i>Gateway (This Machine)
+                </div>
+                <i class="fas fa-arrow-right text-gray-400"></i>
+                <div class="bg-white px-4 py-2 rounded-lg shadow">
+                    <i class="fas fa-desktop text-gray-600 mr-2"></i>Target Machine
+                </div>
+            </div>
+            <p class="text-center text-gray-600 mt-4 text-sm">
+                <i class="fas fa-info-circle text-blue-500 mr-1"></i>
+                Your Android phone connects to a Cloudflare domain → traffic goes through encrypted tunnel → gateway forwards to local machine
+            </p>
+        </div>
+
+        <!-- Cloudflare API Setup Section -->
+        <div class="bg-gradient-to-r from-orange-50 to-blue-50 rounded-lg shadow-md p-6 mb-6">
+            <div class="flex items-center justify-between mb-4">
+                <h2 class="text-xl font-semibold text-gray-800">
+                    <i class="fas fa-bolt text-yellow-500 mr-2"></i>Cloudflare API Auto-Setup
+                </h2>
+                <button onclick="autoSetupCloudflare()" class="bg-gradient-to-r from-orange-500 to-blue-600 hover:from-orange-600 hover:to-blue-700 text-white px-6 py-2 rounded-lg shadow-md">
+                    <i class="fas fa-magic mr-2"></i>One-Click Setup
+                </button>
+            </div>
+            
+            <div class="grid md:grid-cols-3 gap-4 mb-4">
+                <div class="md:col-span-2">
+                    <label class="block text-sm font-medium text-gray-700 mb-2">Cloudflare API Token</label>
+                    <input type="password" id="apiToken" placeholder="Create token at dash.cloudflare.com/profile/api-tokens" 
+                           class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500">
+                    <p class="text-xs text-gray-500 mt-1">
+                        <i class="fas fa-key mr-1"></i>Required permissions: Cloudflare Tunnel (Edit), Zone (Edit), Account (Read)
+                    </p>
+                </div>
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-2">Your Domain</label>
+                    <input type="text" id="cloudflareDomain" placeholder="example.com" 
+                           class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500">
+                </div>
+            </div>
+            
+            <div class="flex flex-wrap gap-3">
+                <button onclick="testCloudflareConnection()" class="bg-green-500 hover:bg-green-600 text-white px-4 py-2 rounded-lg text-sm">
+                    <i class="fas fa-check-circle mr-1"></i>Test Connection
+                </button>
+                <button onclick="listTunnels()" class="bg-blue-500 hover:bg-blue-600 text-white px-4 py-2 rounded-lg text-sm">
+                    <i class="fas fa-list mr-1"></i>List Tunnels
+                </button>
+                <button onclick="createTunnel()" class="bg-purple-500 hover:bg-purple-600 text-white px-4 py-2 rounded-lg text-sm">
+                    <i class="fas fa-plus mr-1"></i>Create New Tunnel
+                </button>
+                <button onclick="setupDnsRecords()" class="bg-indigo-500 hover:bg-indigo-600 text-white px-4 py-2 rounded-lg text-sm">
+                    <i class="fas fa-globe mr-1"></i>Setup DNS Records
+                </button>
+            </div>
+            
+            <div id="apiStatus" class="mt-4 hidden p-3 rounded-lg"></div>
+        </div>
+
+        <!-- Cloudflare Manual Setup Section -->
+        <div class="bg-white rounded-lg shadow-md p-6 mb-6">
+            <div class="flex items-center justify-between mb-4">
+                <h2 class="text-xl font-semibold text-gray-800">
+                    <i class="fas fa-cloud text-orange-500 mr-2"></i>Manual Cloudflare Tunnel Setup
+                </h2>
+                <button onclick="generateCloudflaredConfig()" class="bg-orange-500 hover:bg-orange-600 text-white px-4 py-2 rounded-lg">
+                    <i class="fas fa-cog mr-2"></i>Generate Config
+                </button>
+            </div>
+            
+            <div class="grid md:grid-cols-3 gap-4">
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-2">Tunnel ID</label>
+                    <input type="text" id="tunnelId" placeholder="Your Cloudflare Tunnel ID" 
+                           class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500">
+                </div>
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-2">Zone ID</label>
+                    <input type="text" id="zoneId" placeholder="Cloudflare Zone ID" 
+                           class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500">
+                </div>
+                <div class="flex items-end">
+                    <label class="flex items-center">
+                        <input type="checkbox" id="cloudflareEnabled" class="mr-2">
+                        <span class="text-sm text-gray-700">Enable Cloudflare Exposure</span>
+                    </label>
+                </div>
+            </div>
+            
+            <div class="mt-4 p-4 bg-gray-50 rounded-lg">
+                <h3 class="font-medium text-gray-800 mb-2">Quick Setup Guide:</h3>
+                <ol class="list-decimal list-inside text-sm text-gray-600 space-y-1">
+                    <li>Install cloudflared on this gateway machine</li>
+                    <li>Run <code class="bg-gray-200 px-2 py-1 rounded">cloudflared tunnel login</code></li>
+                    <li>Create tunnel: <code class="bg-gray-200 px-2 py-1 rounded">cloudflared tunnel create --name gatekeeper</code></li>
+                    <li>Enter Tunnel ID above and click "Generate Config"</li>
+                    <li>Run tunnel: <code class="bg-gray-200 px-2 py-1 rounded">cloudflared tunnel run --config cloudflared_configs/config.yml</code></li>
+                </ol>
+                <button onclick="showSetupGuide()" class="mt-3 text-blue-600 hover:text-blue-800 text-sm">
+                    <i class="fas fa-book mr-1"></i>Show Detailed Guide
+                </button>
+            </div>
+        </div>
+
+        <!-- Add Rule Form -->
+        <div class="bg-white rounded-lg shadow-md p-6 mb-6">
+            <h2 class="text-xl font-semibold text-gray-800 mb-4">
+                <i class="fas fa-plus-circle text-green-600 mr-2"></i>Add Forwarding Rule
+            </h2>
+            
+            <form id="ruleForm" class="grid md:grid-cols-6 gap-4">
+                <div class="md:col-span-2">
+                    <label class="block text-sm font-medium text-gray-700 mb-1">Rule Name</label>
+                    <input type="text" id="ruleName" placeholder="e.g., Home RDP" required
+                           class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500">
+                </div>
+                
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-1">Protocol</label>
+                    <select id="protocol" class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500">
+                        <option value="tcp">TCP (RDP, SSH, etc.)</option>
+                        <option value="http">HTTP</option>
+                        <option value="https">HTTPS</option>
+                        <option value="vnc">VNC</option>
+                        <option value="custom">Custom</option>
+                    </select>
+                </div>
+                
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-1">Gateway Port</label>
+                    <input type="number" id="gatewayPort" placeholder="e.g., 3389" required min="1" max="65535"
+                           class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500">
+                </div>
+                
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-1">Target IP</label>
+                    <input type="text" id="targetHost" placeholder="e.g., 192.168.1.100" required
+                           class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500">
+                </div>
+                
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-1">Target Port</label>
+                    <input type="number" id="targetPort" placeholder="e.g., 3389" required min="1" max="65535"
+                           class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500">
+                </div>
+                
+                <div class="md:col-span-2 flex items-end">
+                    <label class="flex items-center">
+                        <input type="checkbox" id="exposeCloudflare" class="mr-2">
+                        <span class="text-sm text-gray-700">Expose via Cloudflare</span>
+                    </label>
+                </div>
+                
+                <div class="md:col-span-4 flex items-end">
+                    <button type="submit" class="bg-blue-600 hover:bg-blue-700 text-white px-6 py-2 rounded-lg w-full">
+                        <i class="fas fa-plus mr-2"></i>Add Rule
+                    </button>
+                </div>
+            </form>
+        </div>
+
+        <!-- Active Rules -->
+        <div class="bg-white rounded-lg shadow-md p-6">
+            <h2 class="text-xl font-semibold text-gray-800 mb-4">
+                <i class="fas fa-list text-blue-600 mr-2"></i>Active Forwarding Rules
+            </h2>
+            
+            <div id="rulesList" class="space-y-4">
+                <!-- Rules will be populated here -->
+            </div>
+        </div>
+
+        <!-- Setup Guide Modal -->
+        <div id="setupModal" class="hidden fixed inset-0 bg-black bg-opacity-50 z-50 overflow-y-auto">
+            <div class="bg-white rounded-lg shadow-xl m-4 mt-20 p-6 max-w-4xl mx-auto">
+                <div class="flex justify-between items-center mb-4">
+                    <h3 class="text-2xl font-bold text-gray-800">Complete Setup Guide</h3>
+                    <button onclick="closeModal()" class="text-gray-600 hover:text-gray-800">
+                        <i class="fas fa-times text-xl"></i>
+                    </button>
+                </div>
+                <div id="setupContent" class="prose max-w-none">
+                    <!-- Content loaded dynamically -->
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let currentRules = [];
+
+        // Load initial data
+        document.addEventListener('DOMContentLoaded', () => {
+            refreshData();
+        });
+
+        async function refreshData() {
+            try {
+                const response = await fetch('/api/config');
+                const data = await response.json();
+                
+                document.getElementById('tunnelId').value = data.cloudflare_tunnel_id || '';
+                document.getElementById('cloudflareEnabled').checked = data.cloudflare_enabled || false;
+                currentRules = data.rules || [];
+                renderRules();
+            } catch (error) {
+                console.error('Failed to load config:', error);
+            }
+        }
+
+        function renderRules() {
+            const container = document.getElementById('rulesList');
+            
+            if (currentRules.length === 0) {
+                container.innerHTML = `
+                    <div class="text-center py-8 text-gray-500">
+                        <i class="fas fa-inbox text-4xl mb-3"></i>
+                        <p>No forwarding rules configured yet</p>
+                    </div>
+                `;
+                return;
+            }
+            
+            container.innerHTML = currentRules.map(rule => `
+                <div class="border border-gray-200 rounded-lg p-4 card-hover">
+                    <div class="flex items-center justify-between mb-3">
+                        <div class="flex items-center gap-3">
+                            <span class="text-2xl">${getProtocolIcon(rule.protocol)}</span>
+                            <div>
+                                <h3 class="font-semibold text-gray-800">${escapeHtml(rule.name)}</h3>
+                                <p class="text-sm text-gray-600">${rule.protocol.toUpperCase()} • Created ${new Date(rule.created_at).toLocaleDateString()}</p>
+                            </div>
+                        </div>
+                        <span class="px-3 py-1 rounded-full text-sm font-medium status-${rule.status}">
+                            ${rule.status === 'running' ? '● Running' : '○ Stopped'}
+                        </span>
+                    </div>
+                    
+                    <div class="grid md:grid-cols-4 gap-4 mb-4 text-sm">
+                        <div>
+                            <span class="text-gray-600">Gateway:</span>
+                            <span class="ml-2 font-mono bg-gray-100 px-2 py-1 rounded">:${rule.gateway_port}</span>
+                        </div>
+                        <div>
+                            <span class="text-gray-600">Target:</span>
+                            <span class="ml-2 font-mono bg-gray-100 px-2 py-1 rounded">${rule.target_host}:${rule.target_port}</span>
+                        </div>
+                        <div>
+                            <span class="text-gray-600">Connections:</span>
+                            <span class="ml-2 font-medium">${rule.current_connections || 0} active / ${rule.total_connections || 0} total</span>
+                        </div>
+                        <div>
+                            <span class="text-gray-600">Cloudflare:</span>
+                            <span class="ml-2 ${rule.expose_cloudflare ? 'text-green-600' : 'text-gray-400'}">
+                                ${rule.expose_cloudflare ? '✓ Enabled' : '✗ Disabled'}
+                            </span>
+                        </div>
+                    </div>
+                    
+                    <div class="flex gap-2">
+                        <button onclick="toggleRule('${rule.id}')" 
+                                class="px-4 py-2 rounded-lg ${rule.enabled ? 'bg-yellow-500 hover:bg-yellow-600' : 'bg-green-500 hover:bg-green-600'} text-white text-sm">
+                            <i class="fas ${rule.enabled ? 'fa-pause' : 'fa-play'} mr-1"></i>
+                            ${rule.enabled ? 'Pause' : 'Start'}
+                        </button>
+                        <button onclick="editRule('${rule.id}')" 
+                                class="px-4 py-2 bg-blue-500 hover:bg-blue-600 text-white rounded-lg text-sm">
+                            <i class="fas fa-edit mr-1"></i>Edit
+                        </button>
+                        <button onclick="deleteRule('${rule.id}')" 
+                                class="px-4 py-2 bg-red-500 hover:bg-red-600 text-white rounded-lg text-sm">
+                            <i class="fas fa-trash mr-1"></i>Delete
+                        </button>
+                        ${rule.expose_cloudflare ? `
+                            <span class="px-4 py-2 bg-orange-100 text-orange-700 rounded-lg text-sm">
+                                <i class="fas fa-globe mr-1"></i>${rule.name.toLowerCase().replace(/\s+/g, '-')}.yourdomain.com
+                            </span>
+                        ` : ''}
+                    </div>
+                </div>
+            `).join('');
+        }
+
+        function getProtocolIcon(protocol) {
+            const icons = {
+                'tcp': '<i class="fas fa-network-wired text-blue-600"></i>',
+                'http': '<i class="fas fa-globe text-green-600"></i>',
+                'https': '<i class="fas fa-lock text-purple-600"></i>',
+                'vnc': '<i class="fas fa-desktop text-gray-600"></i>',
+                'rdp': '<i class="fas fa-desktop text-blue-600"></i>',
+                'ssh': '<i class="fas fa-terminal text-green-600"></i>'
+            };
+            return icons[protocol.toLowerCase()] || '<i class="fas fa-plug text-gray-600"></i>';
+        }
+
+        function escapeHtml(text) {
+            const div = document.createElement('div');
+            div.textContent = text;
+            return div.innerHTML;
+        }
+
+        document.getElementById('ruleForm').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            
+            const rule = {
+                name: document.getElementById('ruleName').value,
+                protocol: document.getElementById('protocol').value,
+                gateway_port: parseInt(document.getElementById('gatewayPort').value),
+                target_host: document.getElementById('targetHost').value,
+                target_port: parseInt(document.getElementById('targetPort').value),
+                expose_cloudflare: document.getElementById('exposeCloudflare').checked,
+                enabled: true
+            };
+            
+            try {
+                const response = await fetch('/api/rules', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(rule)
+                });
+                
+                if (response.ok) {
+                    document.getElementById('ruleForm').reset();
+                    refreshData();
+                } else {
+                    alert('Failed to create rule');
+                }
+            } catch (error) {
+                console.error('Error:', error);
+                alert('Failed to create rule');
+            }
+        });
+
+        async function toggleRule(ruleId) {
+            try {
+                const response = await fetch(`/api/rules/${ruleId}/toggle`, {
+                    method: 'POST'
+                });
+                
+                if (response.ok) {
+                    refreshData();
+                }
+            } catch (error) {
+                console.error('Error:', error);
+            }
+        }
+
+        async function deleteRule(ruleId) {
+            if (!confirm('Are you sure you want to delete this rule?')) return;
+            
+            try {
+                const response = await fetch(`/api/rules/${ruleId}`, {
+                    method: 'DELETE'
+                });
+                
+                if (response.ok) {
+                    refreshData();
+                }
+            } catch (error) {
+                console.error('Error:', error);
+            }
+        }
+
+        async function generateCloudflaredConfig() {
+            const tunnelId = document.getElementById('tunnelId').value;
+            const enabled = document.getElementById('cloudflareEnabled').checked;
+            
+            if (!tunnelId) {
+                alert('Please enter your Cloudflare Tunnel ID first');
+                return;
+            }
+            
+            // Save config first
+            await fetch('/api/config', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    cloudflare_tunnel_id: tunnelId,
+                    cloudflare_enabled: enabled
+                })
+            });
+            
+            try {
+                const response = await fetch('/api/cloudflared/generate', {
+                    method: 'POST'
+                });
+                
+                const data = await response.json();
+                
+                if (data.success) {
+                    alert(`Cloudflared config generated successfully!\n\nFile: ${data.config_file}\n\nNext step: Run 'cloudflared tunnel run --config ${data.config_file}'`);
+                } else {
+                    alert(data.message || 'Failed to generate config');
+                }
+            } catch (error) {
+                console.error('Error:', error);
+                alert('Failed to generate config');
+            }
+        }
+
+        async function showSetupGuide() {
+            try {
+                const response = await fetch('/api/cloudflared/setup-guide');
+                const guide = await response.json();
+                
+                const content = `
+                    <div class="grid md:grid-cols-2 gap-6">
+                        <div>
+                            <h4 class="font-bold text-lg mb-2">Server Setup</h4>
+                            <pre class="bg-gray-100 p-4 rounded-lg text-sm overflow-x-auto whitespace-pre-wrap">${guide.server_setup}</pre>
+                        </div>
+                        <div>
+                            <h4 class="font-bold text-lg mb-2">Android Client Setup</h4>
+                            <pre class="bg-gray-100 p-4 rounded-lg text-sm overflow-x-auto whitespace-pre-wrap">${guide.android_client}</pre>
+                        </div>
+                    </div>
+                    <div class="mt-6">
+                        <h4 class="font-bold text-lg mb-2">Alternative Methods</h4>
+                        <pre class="bg-gray-100 p-4 rounded-lg text-sm overflow-x-auto whitespace-pre-wrap">${guide.alternative_clients}</pre>
+                    </div>
+                `;
+                
+                document.getElementById('setupContent').innerHTML = content;
+                document.getElementById('setupModal').classList.remove('hidden');
+            } catch (error) {
+                console.error('Error:', error);
+            }
+        }
+
+        function closeModal() {
+            document.getElementById('setupModal').classList.add('hidden');
+        }
+
+        // Cloudflare API Functions
+        function showApiStatus(message, type = 'info') {
+            const statusDiv = document.getElementById('apiStatus');
+            const colors = {
+                'success': 'bg-green-100 text-green-800 border border-green-400',
+                'error': 'bg-red-100 text-red-800 border border-red-400',
+                'info': 'bg-blue-100 text-blue-800 border border-blue-400',
+                'warning': 'bg-yellow-100 text-yellow-800 border border-yellow-400'
+            };
+            statusDiv.className = `mt-4 p-3 rounded-lg ${colors[type]}`;
+            statusDiv.innerHTML = message;
+            statusDiv.classList.remove('hidden');
+        }
+
+        async function testCloudflareConnection() {
+            const apiToken = document.getElementById('apiToken').value;
+            
+            if (!apiToken) {
+                showApiStatus('Please enter your API token first', 'warning');
+                return;
+            }
+            
+            try {
+                const response = await fetch('/api/cloudflare/test', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ api_token: apiToken })
+                });
+                
+                const data = await response.json();
+                
+                if (data.success) {
+                    showApiStatus(`✓ ${data.message} - Account ID: ${data.account_id}`, 'success');
+                } else {
+                    showApiStatus(`✗ Error: ${data.error}`, 'error');
+                }
+            } catch (error) {
+                showApiStatus(`✗ Connection failed: ${error.message}`, 'error');
+            }
+        }
+
+        async function listTunnels() {
+            const apiToken = document.getElementById('apiToken').value;
+            
+            if (!apiToken) {
+                showApiStatus('Please enter your API token first', 'warning');
+                return;
+            }
+            
+            // Save token first
+            await fetch('/api/config', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ cloudflare_api_token: apiToken })
+            });
+            
+            try {
+                const response = await fetch('/api/cloudflare/tunnels');
+                const data = await response.json();
+                
+                if (data.success && data.tunnels && data.tunnels.length > 0) {
+                    const tunnelList = data.tunnels.map(t => 
+                        `<li><strong>${t.name}</strong> - ID: ${t.id}</li>`
+                    ).join('');
+                    showApiStatus(`<strong>Found ${data.tunnels.length} tunnel(s):</strong><ul class="list-disc ml-5 mt-2">${tunnelList}</ul>`, 'success');
+                } else if (data.success) {
+                    showApiStatus('No tunnels found in your account', 'info');
+                } else {
+                    showApiStatus(`✗ Error: ${data.error}`, 'error');
+                }
+            } catch (error) {
+                showApiStatus(`✗ Failed to list tunnels: ${error.message}`, 'error');
+            }
+        }
+
+        async function createTunnel() {
+            const apiToken = document.getElementById('apiToken').value;
+            
+            if (!apiToken) {
+                showApiStatus('Please enter your API token first', 'warning');
+                return;
+            }
+            
+            const name = prompt('Enter tunnel name:', 'gatekeeper-tunnel');
+            if (!name) return;
+            
+            try {
+                const response = await fetch('/api/cloudflare/tunnel/create', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ name: name })
+                });
+                
+                const data = await response.json();
+                
+                if (data.success) {
+                    document.getElementById('tunnelId').value = data.tunnel_id;
+                    showApiStatus(`✓ Tunnel created successfully!<br><strong>ID:</strong> ${data.tunnel_id}<br><strong>Name:</strong> ${data.tunnel_name}<br><strong>Credentials:</strong> <code class="bg-gray-200 px-2 py-1 rounded text-xs">${data.credentials || 'Use cloudflared tunnel login'}</code>`, 'success');
+                } else {
+                    showApiStatus(`✗ Error: ${data.error}`, 'error');
+                }
+            } catch (error) {
+                showApiStatus(`✗ Failed to create tunnel: ${error.message}`, 'error');
+            }
+        }
+
+        async function setupDnsRecords() {
+            try {
+                const response = await fetch('/api/cloudflare/dns/setup', {
+                    method: 'POST'
+                });
+                
+                const data = await response.json();
+                
+                if (data.success) {
+                    const results = data.results.map(r => 
+                        `<li>${r.hostname}: ${r.success ? '✓' : '✗'} ${r.error || ''}</li>`
+                    ).join('');
+                    showApiStatus(`${data.message}<ul class="list-disc ml-5 mt-2">${results}</ul>`, 'success');
+                } else {
+                    showApiStatus(`✗ Error: ${data.error}`, 'error');
+                }
+            } catch (error) {
+                showApiStatus(`✗ Failed to setup DNS: ${error.message}`, 'error');
+            }
+        }
+
+        async function autoSetupCloudflare() {
+            const apiToken = document.getElementById('apiToken').value;
+            const domain = document.getElementById('cloudflareDomain').value;
+            
+            if (!apiToken || !domain) {
+                showApiStatus('Please enter both API token and domain', 'warning');
+                return;
+            }
+            
+            const tunnelName = prompt('Enter tunnel name:', 'gatekeeper');
+            if (!tunnelName) return;
+            
+            showApiStatus('⏳ Setting up Cloudflare... This may take a few seconds', 'info');
+            
+            try {
+                const response = await fetch('/api/cloudflare/auto-setup', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ 
+                        api_token: apiToken,
+                        domain: domain,
+                        tunnel_name: tunnelName
+                    })
+                });
+                
+                const data = await response.json();
+                
+                if (data.success) {
+                    const dnsResults = data.dns_results.map(r => 
+                        `<li>${r.hostname}: ${r.success ? '✓' : '✗'}</li>`
+                    ).join('');
+                    
+                    refreshData();
+                    
+                    showApiStatus(`
+                        ✓ ${data.message}<br><br>
+                        <strong>Tunnel Details:</strong><br>
+                        • ID: ${data.tunnel_id}<br>
+                        • Name: ${data.tunnel_name}<br>
+                        • Zone ID: ${data.zone_id}<br><br>
+                        <strong>DNS Records Created:</strong><br>
+                        <ul class="list-disc ml-5">${dnsResults}</ul><br>
+                        <strong>Next Steps:</strong><br>
+                        1. Download config from <code class="bg-gray-200 px-2 py-1 rounded">cloudflared_configs/config.yml</code><br>
+                        2. Run: <code class="bg-gray-200 px-2 py-1 rounded">cloudflared tunnel run --config cloudflared_configs/config.yml</code>
+                    `, 'success');
+                } else {
+                    showApiStatus(`✗ Error: ${data.error}`, 'error');
+                }
+            } catch (error) {
+                showApiStatus(`✗ Setup failed: ${error.message}`, 'error');
+            }
+        }
+
+        // Auto-refresh every 10 seconds
+        setInterval(refreshData, 10000);
+    </script>
+</body>
+</html>
